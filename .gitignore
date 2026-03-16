@@ -1,56 +1,6 @@
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-*.pyc
-
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# Data files
-*.csv
-!data/.gitkeep
-
-# Models
-models/*.pkl
-!models/.gitkeep
-
-# Outputs
-outputs/figures/*.png
-outputs/reports/*.txt
-!outputs/.gitkeep
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Environment
 .venv/
 venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
