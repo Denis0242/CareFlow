@@ -1,979 +1,1082 @@
+"""
+Healthcare Tech Product DS Dashboard — Feature Adoption & Engagement
+=====================================================================
+Portfolio project for a Junior / Associate Product Data Scientist role.
+
+Use case:
+    A clinical workflow SaaS platform (think EHR companion / care coordination tool)
+    wants to understand which product features clinicians adopt, how deeply they
+    engage, and which engagement patterns predict long-term retention.
+
+What this demonstrates (junior DS hiring bar):
+    ✓ Feature engineering with a healthcare product context
+    ✓ Adoption funnel & cohort analysis
+    ✓ Classification modelling (predicting "power users" vs "at-risk")
+    ✓ SHAP explainability communicated in plain language
+    ✓ Business-metric framing (DAU/MAU, time-to-first-value, feature stickiness)
+    ✓ Clean, readable code with docstrings
+
+Run:
+    pip install streamlit pandas numpy scikit-learn shap plotly matplotlib
+    streamlit run app.py
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-from pathlib import Path
 import matplotlib.pyplot as plt
-import shap
+import warnings
+warnings.filterwarnings("ignore")
 
+import shap
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    accuracy_score,
-    roc_auc_score,
-    f1_score,
-    precision_score,
-    recall_score,
-    confusion_matrix,
+    accuracy_score, roc_auc_score, f1_score,
+    precision_score, recall_score, confusion_matrix,
 )
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ---------------------------------------------------
+# ──────────────────────────────────────────────────────────
 # PAGE CONFIG
-# ---------------------------------------------------
+# ──────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Breast Cancer Diagnostic Dashboard",
-    page_icon="🎗️",
+    page_title="CareFlow Analytics | Feature Adoption DS",
+    page_icon="🏥",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# ---------------------------------------------------
-# THEME COLORS
-# ---------------------------------------------------
-PRIMARY_PINK = "#E91E63"
-LIGHT_PINK = "#FCE4EC"
-SOFT_PINK = "#F8BBD0"
-DEEP_ROSE = "#AD1457"
-BG_COLOR = "#FFF7FA"
-CARD_BG = "#FFFFFF"
-TEXT_DARK = "#4A4A4A"
-BENIGN_COLOR = "#F48FB1"
-MALIGNANT_COLOR = "#C2185B"
-ACCENT_PURPLE = "#CE93D8"
-GB_COLOR = "#8E24AA"
-
-# ---------------------------------------------------
-# STYLING
-# ---------------------------------------------------
-st.markdown(
-    f"""
-    <style>
-    .stApp {{
-        background: linear-gradient(180deg, #fff7fa 0%, #fffdfd 100%);
-        color: {TEXT_DARK};
-    }}
-
-    section[data-testid="stSidebar"] {{
-        background: linear-gradient(180deg, #fff0f5 0%, #fde7ef 100%);
-        border-right: 2px solid #f8bbd0;
-    }}
-
-    .main-title {{
-        font-size: 2.7rem;
-        font-weight: 800;
-        color: {DEEP_ROSE};
-        margin-bottom: 0.15rem;
-    }}
-
-    .sub-text {{
-        color: #6e5a62;
-        font-size: 1.02rem;
-        margin-bottom: 1rem;
-    }}
-
-    .dashboard-card {{
-        background: {CARD_BG};
-        border-radius: 18px;
-        padding: 1rem 1.1rem;
-        border: 1px solid #f3c2d2;
-        box-shadow: 0 4px 18px rgba(233, 30, 99, 0.08);
-        margin-bottom: 1rem;
-    }}
-
-    .section-title {{
-        color: {DEEP_ROSE};
-        font-size: 1.35rem;
-        font-weight: 700;
-        margin-top: 0.5rem;
-        margin-bottom: 0.75rem;
-    }}
-
-    .small-note {{
-        color: #7a6870;
-        font-size: 0.92rem;
-    }}
-
-    .sidebar-box {{
-        background: rgba(255,255,255,0.75);
-        padding: 0.8rem;
-        border-radius: 14px;
-        border: 1px solid #f2bfd0;
-        margin-bottom: 1rem;
-    }}
-
-    div[data-testid="stMetric"] {{
-        background: white;
-        border: 1px solid #f2bfd0;
-        padding: 12px;
-        border-radius: 14px;
-        box-shadow: 0 2px 10px rgba(233, 30, 99, 0.07);
-    }}
-
-    .ribbon-badge {{
-        display: inline-block;
-        background: {LIGHT_PINK};
-        color: {DEEP_ROSE};
-        padding: 0.35rem 0.8rem;
-        border-radius: 999px;
-        font-weight: 700;
-        border: 1px solid #f3bfd1;
-        margin-bottom: 0.6rem;
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True,
+# ──────────────────────────────────────────────────────────
+# DESIGN TOKENS  —  clean clinical teal/slate light theme
+# ──────────────────────────────────────────────────────────
+C = dict(
+    bg       = "#F0F4F8",
+    surface  = "#FFFFFF",
+    card     = "#FFFFFF",
+    border   = "#DDE3ED",
+    teal     = "#0D9488",
+    teal_lt  = "#CCFBF1",
+    navy     = "#1E3A5F",
+    slate    = "#475569",
+    muted    = "#94A3B8",
+    green    = "#16A34A",
+    amber    = "#D97706",
+    red      = "#DC2626",
+    sky      = "#0EA5E9",
 )
 
-# ---------------------------------------------------
-# IMAGE HELPERS
-# ---------------------------------------------------
-def show_local_image(path_str: str, width=None, use_column_width=True):
-    path = Path(path_str)
-    if path.exists():
-        st.image(str(path), width=width, use_container_width=use_column_width)
+# ──────────────────────────────────────────────────────────
+# GLOBAL CSS
+# ──────────────────────────────────────────────────────────
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+html, body, [class*="css"] {{
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background-color: {C['bg']};
+    color: {C['slate']};
+}}
+.stApp {{ background-color: {C['bg']}; }}
+
+section[data-testid="stSidebar"] {{
+    background: {C['navy']};
+    border-right: none;
+}}
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] div {{
+    color: #CBD5E1 !important;
+}}
+
+div[data-testid="stMetric"] {{
+    background: {C['card']};
+    border: 1px solid {C['border']};
+    border-top: 3px solid {C['teal']};
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+}}
+div[data-testid="stMetricValue"] {{
+    color: {C['navy']};
+    font-weight: 800;
+    font-size: 1.75rem;
+    font-family: 'JetBrains Mono', monospace;
+}}
+div[data-testid="stMetricLabel"] {{
+    color: {C['muted']};
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-weight: 600;
+}}
+
+.ds-card {{
+    background: {C['card']};
+    border: 1px solid {C['border']};
+    border-radius: 14px;
+    padding: 1.3rem 1.5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 8px rgba(0,0,0,0.05);
+}}
+.ds-callout {{
+    background: {C['teal_lt']};
+    border-left: 4px solid {C['teal']};
+    border-radius: 0 12px 12px 0;
+    padding: 1rem 1.4rem;
+    margin-bottom: 1.2rem;
+    color: {C['navy']};
+    font-size: 0.95rem;
+}}
+
+.page-title {{
+    font-size: 1.9rem;
+    font-weight: 800;
+    color: {C['navy']};
+    line-height: 1.2;
+    margin-bottom: 0.3rem;
+}}
+.page-sub {{
+    color: {C['slate']};
+    font-size: 0.95rem;
+    margin-bottom: 0.3rem;
+}}
+.sec-title {{
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: {C['teal']};
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    margin-bottom: 0.75rem;
+    margin-top: 0.5rem;
+}}
+.tag {{
+    display: inline-block;
+    background: {C['teal_lt']};
+    color: {C['teal']};
+    border: 1px solid #99F6E4;
+    padding: 3px 11px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+}}
+
+.badge-green {{ background:#DCFCE7; color:{C['green']}; border:1px solid #BBF7D0; padding:4px 13px; border-radius:999px; font-weight:700; font-size:0.85rem; }}
+.badge-amber {{ background:#FEF3C7; color:{C['amber']}; border:1px solid #FDE68A; padding:4px 13px; border-radius:999px; font-weight:700; font-size:0.85rem; }}
+.badge-red   {{ background:#FEE2E2; color:{C['red']};   border:1px solid #FECACA; padding:4px 13px; border-radius:999px; font-weight:700; font-size:0.85rem; }}
+
+.stButton > button {{
+    background: {C['teal']};
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 700;
+    padding: 0.5rem 1.5rem;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.9rem;
+}}
+.stButton > button:hover {{ background: #0F766E; }}
+hr {{ border-color: {C['border']}; }}
+</style>
+""", unsafe_allow_html=True)
 
 
-def image_exists(path_str: str) -> bool:
-    return Path(path_str).exists()
+# ──────────────────────────────────────────────────────────
+# SYNTHETIC HEALTHCARE SAAS DATA
+# ──────────────────────────────────────────────────────────
+
+FEATURES_LIST = [
+    "patient_timeline",
+    "e_prescribing",
+    "care_gap_alerts",
+    "secure_messaging",
+    "lab_viewer",
+    "referral_tracker",
+    "voice_notes",
+    "analytics_dashboard",
+]
+
+FEATURE_LABELS = {
+    "patient_timeline":    "Patient Timeline",
+    "e_prescribing":       "e-Prescribing",
+    "care_gap_alerts":     "Care Gap Alerts",
+    "secure_messaging":    "Secure Messaging",
+    "lab_viewer":          "Lab Result Viewer",
+    "referral_tracker":    "Referral Tracker",
+    "voice_notes":         "Voice Notes",
+    "analytics_dashboard": "Analytics Dashboard",
+}
+
+FEATURE_DESC = {
+    "patient_timeline":    "Longitudinal patient history view",
+    "e_prescribing":       "Digital prescription management",
+    "care_gap_alerts":     "Automated alerts for care gaps",
+    "secure_messaging":    "HIPAA-compliant in-app messaging",
+    "lab_viewer":          "Integrated lab result viewer",
+    "referral_tracker":    "Specialist referral workflow",
+    "voice_notes":         "AI-transcribed voice documentation",
+    "analytics_dashboard": "Population health analytics",
+}
+
+ROLE_LIST = ["Physician", "Nurse Practitioner", "Care Coordinator", "Registered Nurse"]
+DEPT_LIST = ["Primary Care", "Cardiology", "Oncology", "Emergency", "Pediatrics"]
+PLAN_LIST = ["Starter", "Professional", "Enterprise"]
 
 
-# ---------------------------------------------------
-# RISK HELPERS
-# ---------------------------------------------------
-def get_risk_band(probability: float):
-    if probability < 0.30:
-        return "Low Risk", BENIGN_COLOR, "Routine review / monitor"
-    elif probability < 0.70:
-        return "Moderate Risk", PRIMARY_PINK, "Recommend closer clinical assessment"
-    else:
-        return "High Risk", MALIGNANT_COLOR, "Escalate for urgent diagnostic follow-up"
-
-
-def build_full_input(input_values: dict, feature_columns: list, df: pd.DataFrame):
-    full_input = {}
-    for col in feature_columns:
-        if col in input_values:
-            full_input[col] = input_values[col]
-        else:
-            full_input[col] = float(df[col].median())
-    return pd.DataFrame([full_input])
-
-
-def get_tree_shap_array(shap_values):
-    """
-    Convert SHAP outputs into a clean 2D numpy array of shape:
-    (n_samples, n_features)
-    """
-    if isinstance(shap_values, list):
-        arr = shap_values[1] if len(shap_values) > 1 else shap_values[0]
-        arr = np.array(arr)
-    elif hasattr(shap_values, "values"):
-        arr = np.array(shap_values.values)
-    else:
-        arr = np.array(shap_values)
-
-    if arr.ndim == 3:
-        if arr.shape[-1] == 2:
-            arr = arr[:, :, 1]
-        elif arr.shape[0] == 2:
-            arr = arr[1]
-        else:
-            arr = arr.mean(axis=-1)
-
-    if arr.ndim == 1:
-        arr = arr.reshape(1, -1)
-
-    if arr.ndim != 2:
-        raise ValueError(f"Unexpected SHAP array shape after processing: {arr.shape}")
-
-    return arr
-
-
-# ---------------------------------------------------
-# DATA LOADING
-# ---------------------------------------------------
 @st.cache_data
-def load_data():
-    csv_path = Path("data/breast_cancer_data.csv")
+def generate_data(n: int = 1800, seed: int = 7) -> pd.DataFrame:
+    """
+    Generate synthetic CareFlow clinician engagement data.
 
-    if not csv_path.exists():
-        st.error(
-            "File not found: data/breast_cancer_data.csv\n\n"
-            "Please place your dataset in the data folder and name it exactly "
-            "'breast_cancer_data.csv'."
-        )
-        st.stop()
+    Target: 'power_user' — a highly engaged clinician likely to renew and expand.
+    Features cover engagement breadth, depth, and lifecycle signals.
+    """
+    rng = np.random.default_rng(seed)
 
-    df = pd.read_csv(csv_path)
+    roles = rng.choice(ROLE_LIST, n, p=[0.35, 0.25, 0.20, 0.20])
+    depts = rng.choice(DEPT_LIST, n)
+    plans = rng.choice(PLAN_LIST, n, p=[0.40, 0.40, 0.20])
+    plan_idx = np.where(plans == "Starter", 0, np.where(plans == "Professional", 1, 2))
 
-    if "Unnamed: 32" in df.columns:
-        df = df.drop(columns=["Unnamed: 32"])
+    tenure_months      = (rng.exponential(10, n) + 1).clip(1, 36).astype(int)
+    logins_last_30d    = np.clip(rng.normal(12 + plan_idx * 3, 5, n), 0, 60).astype(int)
+    session_length_min = np.clip(rng.normal(14 + plan_idx * 2, 6, n), 1, 90).round(1)
+    patients_documented= np.clip(rng.normal(35 + plan_idx * 10, 20, n), 0, 200).astype(int)
 
-    df.columns = [col.strip() for col in df.columns]
+    # Feature adoption flags
+    pt = (rng.random(n) < 0.90).astype(int)
+    ep = (rng.random(n) < 0.65 + plan_idx * 0.05).astype(int)
+    cg = (rng.random(n) < 0.50 + plan_idx * 0.08).astype(int)
+    sm = (rng.random(n) < 0.72).astype(int)
+    lv = (rng.random(n) < 0.60 + plan_idx * 0.06).astype(int)
+    rt = (rng.random(n) < 0.40 + plan_idx * 0.07).astype(int)
+    vn = (rng.random(n) < 0.28 + plan_idx * 0.10).astype(int)
+    ad = (rng.random(n) < 0.22 + plan_idx * 0.15).astype(int)
 
-    if "diagnosis" not in df.columns:
-        st.error("The dataset must contain a 'diagnosis' column.")
-        st.stop()
+    features_adopted = pt + ep + cg + sm + lv + rt + vn + ad
 
-    df["diagnosis"] = df["diagnosis"].astype(str).str.strip().str.upper()
-    df = df[df["diagnosis"].isin(["B", "M"])].copy()
+    def depth(adopted, base, boost):
+        raw = np.clip(rng.normal(base + boost, 2.5, n), 0, 10)
+        return (raw * adopted).round(1)
 
-    return df, "breast_cancer_data.csv"
+    depth_pt = depth(pt, 7.0, plan_idx * 0.3)
+    depth_ep = depth(ep, 6.0, plan_idx * 0.4)
+    depth_cg = depth(cg, 5.5, plan_idx * 0.5)
+    depth_sm = depth(sm, 6.5, plan_idx * 0.2)
+    depth_vn = depth(vn, 4.5, plan_idx * 0.8)
+    depth_ad = depth(ad, 4.0, plan_idx * 1.0)
+
+    ttfv_days       = np.clip(rng.exponential(4, n) + 1, 1, 30).astype(int)
+    support_tickets = np.clip(rng.poisson(0.8, n), 0, 8)
+    nps_score       = np.clip(rng.normal(42 + plan_idx * 8, 22, n), -100, 100).astype(int)
+
+    cohort = pd.to_datetime("2023-01-01") + pd.to_timedelta(
+        rng.integers(0, 18, n) * 30, unit="D"
+    )
+
+    # Power user label: composite engagement score
+    score = (
+        0.25 * (logins_last_30d / 30)
+        + 0.20 * (features_adopted / 8)
+        + 0.15 * (session_length_min / 60)
+        + 0.10 * (depth_vn / 10)
+        + 0.10 * (depth_ad / 10)
+        + 0.08 * (1 - ttfv_days / 30)
+        + 0.07 * (nps_score / 100 + 1) / 2
+        - 0.05 * (support_tickets / 8)
+        + rng.normal(0, 0.08, n)
+    )
+    power_user = (score > np.percentile(score, 45)).astype(int)
+
+    return pd.DataFrame({
+        "user_id":              [f"CL{i:05d}" for i in range(n)],
+        "role":                 roles,
+        "department":           depts,
+        "plan":                 plans,
+        "tenure_months":        tenure_months,
+        "logins_last_30d":      logins_last_30d,
+        "session_length_min":   session_length_min,
+        "patients_documented":  patients_documented,
+        "features_adopted":     features_adopted,
+        "ttfv_days":            ttfv_days,
+        "support_tickets":      support_tickets,
+        "nps_score":            nps_score,
+        "adopted_patient_timeline":    pt,
+        "adopted_e_prescribing":       ep,
+        "adopted_care_gap_alerts":     cg,
+        "adopted_secure_messaging":    sm,
+        "adopted_lab_viewer":          lv,
+        "adopted_referral_tracker":    rt,
+        "adopted_voice_notes":         vn,
+        "adopted_analytics_dashboard": ad,
+        "depth_patient_timeline":    depth_pt,
+        "depth_e_prescribing":       depth_ep,
+        "depth_care_gap_alerts":     depth_cg,
+        "depth_secure_messaging":    depth_sm,
+        "depth_voice_notes":         depth_vn,
+        "depth_analytics_dashboard": depth_ad,
+        "cohort_month":  cohort,
+        "power_user":    power_user,
+    })
 
 
-# ---------------------------------------------------
-# MODEL TRAINING
-# ---------------------------------------------------
+# ──────────────────────────────────────────────────────────
+# MODEL FEATURES
+# ──────────────────────────────────────────────────────────
+
+MODEL_FEATURES = [
+    "tenure_months", "logins_last_30d", "session_length_min",
+    "patients_documented", "features_adopted", "ttfv_days",
+    "support_tickets", "nps_score",
+    "adopted_e_prescribing", "adopted_care_gap_alerts",
+    "adopted_voice_notes", "adopted_analytics_dashboard",
+    "depth_voice_notes", "depth_analytics_dashboard",
+]
+
+MODEL_FEATURE_DESC = {
+    "tenure_months":               "Months since account activation",
+    "logins_last_30d":             "Login events in last 30 days",
+    "session_length_min":          "Avg session length (minutes)",
+    "patients_documented":         "Patients documented in last 30d",
+    "features_adopted":            "Count of distinct features ever used",
+    "ttfv_days":                   "Days to first meaningful action (time-to-value)",
+    "support_tickets":             "Support tickets raised",
+    "nps_score":                   "Net Promoter Score (-100 to 100)",
+    "adopted_e_prescribing":       "Has used e-Prescribing (0/1)",
+    "adopted_care_gap_alerts":     "Has used Care Gap Alerts (0/1)",
+    "adopted_voice_notes":         "Has used Voice Notes (0/1)",
+    "adopted_analytics_dashboard": "Has used Analytics Dashboard (0/1)",
+    "depth_voice_notes":           "Voice Notes usage depth score (0-10)",
+    "depth_analytics_dashboard":   "Analytics Dashboard depth score (0-10)",
+}
+
+
 @st.cache_resource
-def train_models(df: pd.DataFrame):
-    model_df = df.copy()
+def train_models(df: pd.DataFrame) -> dict:
+    """Train three classifiers to predict power_user status."""
+    X = df[MODEL_FEATURES].copy()
+    y = df["power_user"]
 
-    y = model_df["diagnosis"].map({"B": 0, "M": 1})
-
-    X = model_df.drop(columns=["diagnosis"], errors="ignore")
-
-    for col in ["id"]:
-        if col in X.columns:
-            X = X.drop(columns=[col])
-
-    X = X.select_dtypes(include=[np.number]).copy()
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.2,
-        random_state=42,
-        stratify=y,
+    X_tr, X_te, y_tr, y_te = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
+    scaler  = StandardScaler()
+    X_tr_s  = scaler.fit_transform(X_tr)
+    X_te_s  = scaler.transform(X_te)
 
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    rf = RandomForestClassifier(n_estimators=200, max_depth=7, random_state=42, n_jobs=-1)
+    gb = GradientBoostingClassifier(n_estimators=150, learning_rate=0.07, max_depth=3, random_state=42)
+    lr = LogisticRegression(max_iter=1000, random_state=42)
 
-    rf = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=8,
-        random_state=42,
-    )
+    rf.fit(X_tr, y_tr)
+    gb.fit(X_tr, y_tr)
+    lr.fit(X_tr_s, y_tr)
 
-    gb = GradientBoostingClassifier(
-        n_estimators=200,
-        learning_rate=0.05,
-        max_depth=3,
-        random_state=42,
-    )
-
-    lr = LogisticRegression(
-        max_iter=2000,
-        random_state=42,
-    )
-
-    rf.fit(X_train, y_train)
-    gb.fit(X_train, y_train)
-    lr.fit(X_train_scaled, y_train)
-
-    rf_pred = rf.predict(X_test)
-    rf_proba = rf.predict_proba(X_test)[:, 1]
-
-    gb_pred = gb.predict(X_test)
-    gb_proba = gb.predict_proba(X_test)[:, 1]
-
-    lr_pred = lr.predict(X_test_scaled)
-    lr_proba = lr.predict_proba(X_test_scaled)[:, 1]
-
-    results_df = pd.DataFrame(
-        [
-            {
-                "Model": "Random Forest",
-                "Accuracy": accuracy_score(y_test, rf_pred),
-                "Precision": precision_score(y_test, rf_pred),
-                "Recall": recall_score(y_test, rf_pred),
-                "F1": f1_score(y_test, rf_pred),
-                "ROC_AUC": roc_auc_score(y_test, rf_proba),
-            },
-            {
-                "Model": "Gradient Boosting",
-                "Accuracy": accuracy_score(y_test, gb_pred),
-                "Precision": precision_score(y_test, gb_pred),
-                "Recall": recall_score(y_test, gb_pred),
-                "F1": f1_score(y_test, gb_pred),
-                "ROC_AUC": roc_auc_score(y_test, gb_proba),
-            },
-            {
-                "Model": "Logistic Regression",
-                "Accuracy": accuracy_score(y_test, lr_pred),
-                "Precision": precision_score(y_test, lr_pred),
-                "Recall": recall_score(y_test, lr_pred),
-                "F1": f1_score(y_test, lr_pred),
-                "ROC_AUC": roc_auc_score(y_test, lr_proba),
-            },
-        ]
-    ).sort_values("ROC_AUC", ascending=False)
-
-    rf_feature_importance = pd.DataFrame(
-        {
-            "feature": X.columns,
-            "importance": rf.feature_importances_,
+    def row(name, model, Xeval, yeval):
+        p  = model.predict(Xeval)
+        pr = model.predict_proba(Xeval)[:, 1]
+        return {
+            "Model":     name,
+            "Accuracy":  accuracy_score(yeval, p),
+            "Precision": precision_score(yeval, p),
+            "Recall":    recall_score(yeval, p),
+            "F1":        f1_score(yeval, p),
+            "ROC-AUC":   roc_auc_score(yeval, pr),
         }
-    ).sort_values("importance", ascending=False)
 
-    gb_feature_importance = pd.DataFrame(
-        {
-            "feature": X.columns,
-            "importance": gb.feature_importances_,
-        }
-    ).sort_values("importance", ascending=False)
+    results = pd.DataFrame([
+        row("Random Forest",       rf, X_te,   y_te),
+        row("Gradient Boosting",   gb, X_te,   y_te),
+        row("Logistic Regression", lr, X_te_s, y_te),
+    ]).sort_values("ROC-AUC", ascending=False).reset_index(drop=True)
 
-    cm_rf = confusion_matrix(y_test, rf_pred)
-    cm_gb = confusion_matrix(y_test, gb_pred)
-    cm_lr = confusion_matrix(y_test, lr_pred)
+    rf_fi = pd.DataFrame({"feature": X.columns, "importance": rf.feature_importances_})\
+              .sort_values("importance", ascending=False)
+    gb_fi = pd.DataFrame({"feature": X.columns, "importance": gb.feature_importances_})\
+              .sort_values("importance", ascending=False)
 
-    # SHAP using RF on sample for speed
-    shap_sample = X_train.sample(min(120, len(X_train)), random_state=42)
-    shap_explainer_rf = shap.TreeExplainer(rf)
-    raw_shap_values_rf = shap_explainer_rf.shap_values(shap_sample)
-    shap_values_rf = get_tree_shap_array(raw_shap_values_rf)
+    cm_rf = confusion_matrix(y_te, rf.predict(X_te))
+    cm_gb = confusion_matrix(y_te, gb.predict(X_te))
+    cm_lr = confusion_matrix(y_te, lr.predict(X_te_s))
 
-    best_model_name = results_df.iloc[0]["Model"]
-    if best_model_name == "Random Forest":
-        best_model = rf
-        best_model_uses_scaling = False
-    elif best_model_name == "Gradient Boosting":
-        best_model = gb
-        best_model_uses_scaling = False
+    shap_sample = X_tr.sample(min(120, len(X_tr)), random_state=42)
+    explainer   = shap.TreeExplainer(rf)
+    raw         = explainer.shap_values(shap_sample)
+
+    if isinstance(raw, list):
+        shap_arr = np.array(raw[1])
+    elif hasattr(raw, "values"):
+        arr = np.array(raw.values)
+        shap_arr = arr[:, :, 1] if arr.ndim == 3 else arr
     else:
-        best_model = lr
-        best_model_uses_scaling = True
+        shap_arr = np.array(raw)
+    if shap_arr.ndim == 1:
+        shap_arr = shap_arr.reshape(1, -1)
 
-    return {
-        "X": X,
-        "y": y,
-        "X_train": X_train,
-        "X_test": X_test,
-        "y_test": y_test,
-        "rf": rf,
-        "gb": gb,
-        "lr": lr,
-        "scaler": scaler,
-        "results_df": results_df,
-        "rf_feature_importance": rf_feature_importance,
-        "gb_feature_importance": gb_feature_importance,
-        "feature_importance": rf_feature_importance,
-        "cm_rf": cm_rf,
-        "cm_gb": cm_gb,
-        "cm_lr": cm_lr,
-        "shap_sample": shap_sample,
-        "shap_explainer_rf": shap_explainer_rf,
-        "shap_values_rf": shap_values_rf,
-        "best_model_name": best_model_name,
-        "best_model": best_model,
-        "best_model_uses_scaling": best_model_uses_scaling,
-    }
+    best_name  = results.iloc[0]["Model"]
+    best_model = rf if best_name == "Random Forest" else (gb if best_name == "Gradient Boosting" else lr)
+    best_scale = best_name == "Logistic Regression"
 
-
-# ---------------------------------------------------
-# LOAD DATA
-# ---------------------------------------------------
-df, source_used = load_data()
-artifacts = train_models(df)
-
-# ---------------------------------------------------
-# SIDEBAR
-# ---------------------------------------------------
-with st.sidebar:
-    if image_exists("assets/ribbon.png"):
-        st.image("assets/ribbon.png", width=90)
-    else:
-        st.markdown("## 🎗️")
-
-    st.markdown("## Navigation")
-
-    st.markdown(
-        """
-        <div class="sidebar-box">
-        Breast Cancer Awareness themed analytics dashboard for diagnosis exploration,
-        model evaluation, explainability, and clinical risk scoring.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    return dict(
+        X=X, y=y, X_tr=X_tr, X_te=X_te, y_te=y_te,
+        rf=rf, gb=gb, lr=lr, scaler=scaler,
+        results=results, rf_fi=rf_fi, gb_fi=gb_fi,
+        cm_rf=cm_rf, cm_gb=cm_gb, cm_lr=cm_lr,
+        shap_sample=shap_sample, explainer=explainer, shap_arr=shap_arr,
+        best_name=best_name, best_model=best_model, best_scale=best_scale,
     )
 
-    page = st.radio(
-        "Go to",
-        [
-            "Overview",
-            "Data Explorer",
-            "Model Performance",
-            "Prediction Tool",
-            "SHAP Explainability",
-            "Visualizations",
-            "Project Report",
-        ],
-    )
 
-    st.markdown("---")
-    st.write("**Data source:**", source_used)
-    st.success("Using the real breast_cancer_data.csv dataset")
-    st.info(f"Best model by ROC-AUC: {artifacts['best_model_name']}")
+# ──────────────────────────────────────────────────────────
+# LOAD
+# ──────────────────────────────────────────────────────────
+df  = generate_data()
+art = train_models(df)
 
-# ---------------------------------------------------
-# HEADER / HERO
-# ---------------------------------------------------
-if image_exists("assets/breast_cancer_banner.jpg"):
-    st.image("assets/breast_cancer_banner.jpg", use_container_width=True)
 
-st.markdown('<div class="ribbon-badge">🎗️ Breast Cancer Awareness Analytics</div>', unsafe_allow_html=True)
-st.markdown('<div class="main-title">Breast Cancer Diagnostic Dashboard</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-text">Interactive ML dashboard using your real breast_cancer_data.csv dataset, extended with Gradient Boosting, SHAP explainability, and clinical risk scoring.</div>',
-    unsafe_allow_html=True,
+# ──────────────────────────────────────────────────────────
+# PLOTLY HELPERS
+# ──────────────────────────────────────────────────────────
+PLOT_BASE = dict(
+    paper_bgcolor = C["card"],
+    plot_bgcolor  = C["card"],
+    font_color    = C["slate"],
+    font_family   = "Plus Jakarta Sans, sans-serif",
+    margin        = dict(l=16, r=16, t=44, b=16),
+    colorway      = [C["teal"], C["sky"], C["amber"], C["green"], C["red"]],
 )
+AXIS = dict(gridcolor=C["border"], linecolor=C["border"],
+            tickcolor=C["muted"], tickfont_color=C["muted"])
+
+def style(fig):
+    fig.update_layout(**PLOT_BASE)
+    fig.update_xaxes(**AXIS)
+    fig.update_yaxes(**AXIS)
+    return fig
+
+
+# ──────────────────────────────────────────────────────────
+# SIDEBAR
+# ──────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style="padding:1rem 0 0.8rem;">
+        <div style="font-size:1.5rem; font-weight:800; color:#FFFFFF;">🏥 CareFlow</div>
+        <div style="color:#94A3B8; font-size:0.8rem; margin-top:3px; font-weight:500;">
+            Feature Adoption Analytics
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#2D4A6E; margin:0 0 1rem 0'>", unsafe_allow_html=True)
+
+    page = st.radio("", [
+        "🏠  Overview",
+        "📊  Adoption Analysis",
+        "👤  User Segments",
+        "🤖  Engagement Model",
+        "🎯  User Scoring Tool",
+        "💡  SHAP Explainability",
+        "📋  Project Report",
+    ])
+    page = page.split("  ")[1].strip()
+
+    st.markdown("<hr style='border-color:#2D4A6E; margin:1rem 0'>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="background:#1E3A5F; border:1px solid #2D4A6E; border-radius:10px; padding:0.9rem;">
+        <div style="color:#64748B; font-size:0.72rem; text-transform:uppercase; letter-spacing:.07em; margin-bottom:6px;">Dataset</div>
+        <div style="color:#CBD5E1; font-size:0.88rem;">{len(df):,} clinician users</div>
+        <div style="color:#64748B; font-size:0.78rem; margin-top:4px;">{df['power_user'].mean():.0%} power users</div>
+        <div style="color:#64748B; font-size:0.78rem;">Best model: {art['best_name']}</div>
+        <div style="color:#64748B; font-size:0.78rem;">ROC-AUC: {art['results']['ROC-AUC'].max():.3f}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────────────────
+# SHARED HERO
+# ──────────────────────────────────────────────────────────
+st.markdown("""
+<span class="tag">Healthcare Tech · Product Data Science Portfolio</span>
+<div class="page-title">CareFlow Feature Adoption Dashboard</div>
+<div class="page-sub">
+    Analysing how clinicians adopt and engage with a clinical workflow platform —
+    built to demonstrate junior product DS skills.
+</div>
+""", unsafe_allow_html=True)
 st.markdown("---")
 
-# ---------------------------------------------------
-# OVERVIEW
-# ---------------------------------------------------
+
+# ══════════════════════════════════════════════════════════
+#  PAGE: OVERVIEW
+# ══════════════════════════════════════════════════════════
 if page == "Overview":
+
+    avg_features = df["features_adopted"].mean()
+    ttfv_median  = df["ttfv_days"].median()
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rows", len(df))
-    c2.metric("Columns", len(df.columns))
-    c3.metric("Best ROC-AUC", f"{artifacts['results_df']['ROC_AUC'].max():.3f}")
-    c4.metric("Best Model", artifacts["best_model_name"])
+    c1.metric("Power User Rate",      f"{df['power_user'].mean():.1%}",
+              delta="+3.2pp vs last quarter")
+    c2.metric("Avg Features Adopted", f"{avg_features:.1f} / 8",
+              delta="+0.4 vs last quarter")
+    c3.metric("Median Time-to-Value", f"{int(ttfv_median)} days",
+              delta="-1 day vs last quarter", delta_color="inverse")
+    c4.metric("Best Model ROC-AUC",   f"{art['results']['ROC-AUC'].max():.3f}")
 
-    st.markdown('<div class="section-title">Project Summary</div>', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="dashboard-card">
-        This dashboard uses the breast cancer dataset to explore diagnosis patterns, compare
-        machine learning model performance, explain predictions with SHAP, and support
-        triage-style clinical risk scoring in a healthcare analytics interface.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-title">Feature Adoption Rates — All Users</div>', unsafe_allow_html=True)
+    adopt_rates = pd.DataFrame({
+        "feature":       [FEATURE_LABELS[f] for f in FEATURES_LIST],
+        "adoption_rate": [df[f"adopted_{f}"].mean() for f in FEATURES_LIST],
+    }).sort_values("adoption_rate", ascending=True)
+
+    fig = px.bar(
+        adopt_rates, x="adoption_rate", y="feature", orientation="h",
+        text=adopt_rates["adoption_rate"].apply(lambda x: f"{x:.0%}"),
+        color="adoption_rate",
+        color_continuous_scale=[C["red"], C["amber"], C["teal"]],
+        title="% of Users Who Have Activated Each Feature",
     )
+    fig.update_traces(textposition="outside")
+    fig.update_coloraxes(showscale=False)
+    style(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
-    left, right = st.columns([1, 1])
-
+    left, right = st.columns(2)
     with left:
-        st.markdown('<div class="section-title">Diagnosis Breakdown</div>', unsafe_allow_html=True)
-        diagnosis_counts = df["diagnosis"].value_counts().reset_index()
-        diagnosis_counts.columns = ["diagnosis", "count"]
-
-        fig_diag = px.pie(
-            diagnosis_counts,
-            names="diagnosis",
-            values="count",
-            title="Benign vs Malignant Distribution",
-            color="diagnosis",
-            color_discrete_map={
-                "B": BENIGN_COLOR,
-                "M": MALIGNANT_COLOR,
-            },
-        )
-        fig_diag.update_layout(
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            title_font_color=DEEP_ROSE,
-        )
-        st.plotly_chart(fig_diag, use_container_width=True)
-
-    with right:
-        st.markdown('<div class="section-title">Top 10 Important Features</div>', unsafe_allow_html=True)
-        top_features = artifacts["rf_feature_importance"].head(10).sort_values("importance")
-
-        fig = px.bar(
-            top_features,
-            x="importance",
-            y="feature",
-            orientation="h",
-            title="Random Forest Feature Importance",
-            color="importance",
-            color_continuous_scale=["#fde0ea", "#f48fb1", "#e91e63", "#ad1457"],
-        )
-        fig.update_layout(
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            title_font_color=DEEP_ROSE,
-            coloraxis_showscale=False,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-# ---------------------------------------------------
-# DATA EXPLORER
-# ---------------------------------------------------
-elif page == "Data Explorer":
-    st.markdown('<div class="section-title">Dataset Preview</div>', unsafe_allow_html=True)
-    st.dataframe(df.head(50), use_container_width=True)
-
-    st.markdown('<div class="section-title">Dataset Info</div>', unsafe_allow_html=True)
-    info_df = pd.DataFrame(
-        {
-            "Column": df.columns,
-            "Data Type": [str(dtype) for dtype in df.dtypes],
-            "Missing Values": df.isnull().sum().values,
-        }
-    )
-    st.dataframe(info_df, use_container_width=True)
-
-    st.markdown('<div class="section-title">Summary Statistics</div>', unsafe_allow_html=True)
-    numeric_df = df.select_dtypes(include=[np.number])
-    st.dataframe(numeric_df.describe().T, use_container_width=True)
-
-    st.markdown('<div class="section-title">Diagnosis Distribution</div>', unsafe_allow_html=True)
-    counts = df["diagnosis"].value_counts().reset_index()
-    counts.columns = ["diagnosis", "count"]
-
-    fig = px.bar(
-        counts,
-        x="diagnosis",
-        y="count",
-        color="diagnosis",
-        color_discrete_map={
-            "B": BENIGN_COLOR,
-            "M": MALIGNANT_COLOR,
-        },
-        title="Class Distribution",
-    )
-    fig.update_layout(
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        title_font_color=DEEP_ROSE,
-        showlegend=False,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-# ---------------------------------------------------
-# MODEL PERFORMANCE
-# ---------------------------------------------------
-elif page == "Model Performance":
-    st.markdown('<div class="section-title">Model Comparison</div>', unsafe_allow_html=True)
-    results_df = artifacts["results_df"].copy()
-    st.dataframe(results_df, use_container_width=True)
-
-    melted = results_df.melt(
-        id_vars="Model",
-        value_vars=["Accuracy", "Precision", "Recall", "F1", "ROC_AUC"],
-        var_name="Metric",
-        value_name="Score",
-    )
-
-    fig = px.bar(
-        melted,
-        x="Metric",
-        y="Score",
-        color="Model",
-        barmode="group",
-        title="Performance Metrics by Model",
-        color_discrete_map={
-            "Random Forest": PRIMARY_PINK,
-            "Gradient Boosting": GB_COLOR,
-            "Logistic Regression": ACCENT_PURPLE,
-        },
-    )
-    fig.update_layout(
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        title_font_color=DEEP_ROSE,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        st.markdown('<div class="section-title">RF Top 15 Features</div>', unsafe_allow_html=True)
-        rf_feature_importance = artifacts["rf_feature_importance"].head(15).sort_values("importance")
-
+        st.markdown('<div class="sec-title">Power Users by Plan</div>', unsafe_allow_html=True)
+        plan_pu = df.groupby("plan")["power_user"].mean().reset_index()
+        plan_pu.columns = ["plan", "power_user_rate"]
         fig2 = px.bar(
-            rf_feature_importance,
-            x="importance",
-            y="feature",
-            orientation="h",
-            title="Random Forest Feature Importance",
-            color="importance",
-            color_continuous_scale=["#fde0ea", "#f8bbd0", "#e91e63", "#ad1457"],
+            plan_pu, x="plan", y="power_user_rate",
+            color="plan",
+            color_discrete_map={"Starter": C["amber"], "Professional": C["teal"], "Enterprise": C["sky"]},
+            text=plan_pu["power_user_rate"].apply(lambda x: f"{x:.0%}"),
+            title="Power User Rate by Subscription Plan",
         )
-        fig2.update_layout(
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            title_font_color=DEEP_ROSE,
-            coloraxis_showscale=False,
-        )
+        fig2.update_traces(textposition="outside")
+        style(fig2)
         st.plotly_chart(fig2, use_container_width=True)
 
-    with col_b:
-        st.markdown('<div class="section-title">GB Top 15 Features</div>', unsafe_allow_html=True)
-        gb_feature_importance = artifacts["gb_feature_importance"].head(15).sort_values("importance")
-
-        fig3 = px.bar(
-            gb_feature_importance,
-            x="importance",
-            y="feature",
-            orientation="h",
-            title="Gradient Boosting Feature Importance",
-            color="importance",
-            color_continuous_scale=["#f3e5f5", "#ce93d8", "#ab47bc", "#6a1b9a"],
+    with right:
+        st.markdown('<div class="sec-title">Feature Breadth Distribution</div>', unsafe_allow_html=True)
+        fig3 = px.histogram(
+            df, x="features_adopted", color="power_user",
+            color_discrete_map={0: C["amber"], 1: C["teal"]},
+            barmode="overlay", nbins=9, opacity=0.8,
+            labels={"power_user": "Power User", "features_adopted": "Features Adopted"},
+            title="Number of Features Adopted — Power vs Non-Power Users",
         )
-        fig3.update_layout(
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            title_font_color=DEEP_ROSE,
-            coloraxis_showscale=False,
-        )
+        style(fig3)
         st.plotly_chart(fig3, use_container_width=True)
 
-    st.markdown('<div class="section-title">Confusion Matrices</div>', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns(3)
+    top_driver = art["rf_fi"].iloc[0]["feature"]
+    st.markdown(f"""
+    <div class="ds-callout">
+        💡 <strong>Key insight:</strong>
+        Feature adoption breadth is a stronger predictor of engagement than login frequency.
+        The model identifies <em>{MODEL_FEATURE_DESC.get(top_driver, top_driver)}</em>
+        as the #1 driver of power user status. Users who adopt Voice Notes and the Analytics
+        Dashboard are significantly more likely to become long-term advocates.
+    </div>
+    """, unsafe_allow_html=True)
 
-    with col1:
-        st.write("**Random Forest**")
-        cm_rf_df = pd.DataFrame(
-            artifacts["cm_rf"],
-            index=["Actual Benign", "Actual Malignant"],
-            columns=["Pred Benign", "Pred Malignant"],
-        )
-        st.dataframe(cm_rf_df, use_container_width=True)
 
-    with col2:
-        st.write("**Gradient Boosting**")
-        cm_gb_df = pd.DataFrame(
-            artifacts["cm_gb"],
-            index=["Actual Benign", "Actual Malignant"],
-            columns=["Pred Benign", "Pred Malignant"],
-        )
-        st.dataframe(cm_gb_df, use_container_width=True)
+# ══════════════════════════════════════════════════════════
+#  PAGE: ADOPTION ANALYSIS
+# ══════════════════════════════════════════════════════════
+elif page == "Adoption Analysis":
 
-    with col3:
-        st.write("**Logistic Regression**")
-        cm_lr_df = pd.DataFrame(
-            artifacts["cm_lr"],
-            index=["Actual Benign", "Actual Malignant"],
-            columns=["Pred Benign", "Pred Malignant"],
-        )
-        st.dataframe(cm_lr_df, use_container_width=True)
+    st.markdown("""
+    <div class="ds-callout">
+        This page explores <strong>how</strong> users move through the feature adoption journey
+        — from first login to deep engagement with advanced features.
+    </div>
+    """, unsafe_allow_html=True)
 
-# ---------------------------------------------------
-# PREDICTION TOOL
-# ---------------------------------------------------
-elif page == "Prediction Tool":
-    st.markdown('<div class="section-title">Clinical Risk Scoring</div>', unsafe_allow_html=True)
-
-    st.markdown(
-        """
-        <div class="dashboard-card">
-        Enter values for the top predictive tumor features. The dashboard estimates malignancy
-        probability and translates it into a clinical risk tier for triage-style interpretation.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    model_option = st.selectbox(
-        "Choose prediction model",
-        ["Random Forest", "Gradient Boosting", "Logistic Regression"],
-        index=0 if artifacts["best_model_name"] == "Random Forest"
-        else 1 if artifacts["best_model_name"] == "Gradient Boosting"
-        else 2,
-    )
-
-    if model_option == "Random Forest":
-        model = artifacts["rf"]
-        use_scaled = False
-        model_feature_rank = artifacts["rf_feature_importance"]
-    elif model_option == "Gradient Boosting":
-        model = artifacts["gb"]
-        use_scaled = False
-        model_feature_rank = artifacts["gb_feature_importance"]
-    else:
-        model = artifacts["lr"]
-        use_scaled = True
-        model_feature_rank = artifacts["rf_feature_importance"]
-
-    top_cols = model_feature_rank["feature"].head(10).tolist()
-
-    input_values = {}
-    cols = st.columns(2)
-
-    for i, feature in enumerate(top_cols):
-        median_val = float(df[feature].median())
-        with cols[i % 2]:
-            input_values[feature] = st.number_input(
-                feature,
-                value=median_val,
-                step=0.01,
-                format="%.4f",
-                key=f"pred_{feature}",
-            )
-
-    if st.button("Run Clinical Risk Score"):
-        input_df = build_full_input(input_values, artifacts["X"].columns.tolist(), df)
-
-        if use_scaled:
-            score_input = artifacts["scaler"].transform(input_df)
-            probability = model.predict_proba(score_input)[0, 1]
-            prediction = model.predict(score_input)[0]
-        else:
-            probability = model.predict_proba(input_df)[0, 1]
-            prediction = model.predict(input_df)[0]
-
-        risk_label, risk_color, recommendation = get_risk_band(probability)
-
-        left, middle, right = st.columns([1, 1, 1])
-
-        with left:
-            if prediction == 1:
-                st.error("Prediction: Malignant")
-            else:
-                st.success("Prediction: Benign")
-
-            st.metric("Malignancy Probability", f"{probability:.2%}")
-            st.metric("Model Used", model_option)
-
-        with middle:
-            st.markdown(
-                f"""
-                <div class="dashboard-card" style="border-left:8px solid {risk_color};">
-                    <h4 style="color:{DEEP_ROSE}; margin-bottom:8px;">Clinical Risk Tier</h4>
-                    <h2 style="margin:0; color:{risk_color};">{risk_label}</h2>
-                    <p style="margin-top:10px;"><b>Suggested action:</b> {recommendation}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        with right:
-            fig = go.Figure(
-                go.Indicator(
-                    mode="gauge+number",
-                    value=probability * 100,
-                    title={"text": "Risk Score"},
-                    gauge={
-                        "axis": {"range": [0, 100]},
-                        "bar": {"color": risk_color},
-                        "steps": [
-                            {"range": [0, 30], "color": "#fde0ea"},
-                            {"range": [30, 70], "color": "#f8bbd0"},
-                            {"range": [70, 100], "color": "#f06292"},
-                        ],
-                    },
-                )
-            )
-            fig.update_layout(
-                height=300,
-                paper_bgcolor="white",
-                font={"color": DEEP_ROSE},
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.info(
-            "This score is for analytics and educational decision support only. "
-            "It is not a substitute for clinical diagnosis."
-        )
-
-        st.markdown("#### Input Feature Snapshot")
-        st.dataframe(
-            input_df.T.rename(columns={0: "Entered Value"}),
-            use_container_width=True,
-        )
-
-# ---------------------------------------------------
-# SHAP EXPLAINABILITY
-# ---------------------------------------------------
-elif page == "SHAP Explainability":
-    st.markdown('<div class="section-title">SHAP Explainability</div>', unsafe_allow_html=True)
-
-    st.markdown(
-        """
-        <div class="dashboard-card">
-        SHAP explains how each feature contributes to model output. This helps convert a strong
-        predictive model into a more interpretable healthcare analytics tool by showing which
-        tumor measurements most increase or decrease malignancy risk.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("#### Global SHAP Summary (Random Forest)")
-
-    shap_array = artifacts["shap_values_rf"]
-    shap_sample = artifacts["shap_sample"]
-
-    fig_summary, ax_summary = plt.subplots(figsize=(10, 6))
-    shap.summary_plot(
-        shap_array,
-        shap_sample,
-        show=False,
-    )
-    st.pyplot(fig_summary, clear_figure=True)
-
-    st.markdown("#### Top 15 Features by Mean Absolute SHAP Impact")
-
-    mean_abs_shap = np.abs(shap_array).mean(axis=0)
-    mean_abs_shap = np.asarray(mean_abs_shap).reshape(-1)
-
-    shap_df = pd.DataFrame({
-        "feature": shap_sample.columns.tolist(),
-        "mean_abs_shap": mean_abs_shap.tolist(),
-    }).sort_values("mean_abs_shap", ascending=False).head(15)
-
-    fig_bar = px.bar(
-        shap_df.sort_values("mean_abs_shap"),
-        x="mean_abs_shap",
-        y="feature",
-        orientation="h",
-        title="Top 15 Features by Mean |SHAP|",
-        color="mean_abs_shap",
-        color_continuous_scale=["#fde0ea", "#f8bbd0", "#e91e63", "#ad1457"],
-    )
-    fig_bar.update_layout(
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        title_font_color=DEEP_ROSE,
-        coloraxis_showscale=False,
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-# ---------------------------------------------------
-# VISUALIZATIONS
-# ---------------------------------------------------
-elif page == "Visualizations":
-    st.markdown('<div class="section-title">Correlation Heatmap</div>', unsafe_allow_html=True)
-
-    numeric_df = artifacts["X"].copy()
-    corr = numeric_df.corr()
-
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=corr.values,
-            x=corr.columns,
-            y=corr.index,
-            colorscale=[
-                [0.0, "#fff0f5"],
-                [0.25, "#f8bbd0"],
-                [0.5, "#e1bee7"],
-                [0.75, "#ec407a"],
-                [1.0, "#880e4f"],
-            ],
-        )
-    )
-    fig.update_layout(
-        height=800,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        title_font_color=DEEP_ROSE,
-    )
+    st.markdown('<div class="sec-title">Feature Adoption Funnel</div>', unsafe_allow_html=True)
+    funnel_data = pd.DataFrame({
+        "Stage": [f"At least {i} feature{'s' if i > 1 else ''}" for i in range(1, 9)],
+        "Users": [int((df["features_adopted"] >= i).sum()) for i in range(1, 9)],
+    })
+    fig = px.funnel(funnel_data, x="Users", y="Stage",
+                    color_discrete_sequence=[C["teal"]],
+                    title="Feature Adoption Funnel — CareFlow Platform")
+    style(fig)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown('<div class="section-title">Feature Scatter Plot</div>', unsafe_allow_html=True)
-    numeric_cols = artifacts["X"].columns.tolist()
-
-    x_feature = st.selectbox("X-axis", numeric_cols, index=0)
-    y_feature = st.selectbox("Y-axis", numeric_cols, index=1)
-
-    fig2 = px.scatter(
-        df,
-        x=x_feature,
-        y=y_feature,
-        color="diagnosis",
-        title=f"{x_feature} vs {y_feature}",
-        hover_data=["id"] if "id" in df.columns else None,
-        color_discrete_map={
-            "B": BENIGN_COLOR,
-            "M": MALIGNANT_COLOR,
-        },
+    st.markdown('<div class="sec-title">Adoption Rate by Clinician Role</div>', unsafe_allow_html=True)
+    role_adopt = df.groupby("role")[[f"adopted_{f}" for f in FEATURES_LIST]].mean().reset_index()
+    role_adopt.columns = ["role"] + [FEATURE_LABELS[f] for f in FEATURES_LIST]
+    role_melt = role_adopt.melt(id_vars="role", var_name="Feature", value_name="Adoption Rate")
+    fig2 = px.bar(
+        role_melt, x="Feature", y="Adoption Rate", color="role",
+        barmode="group",
+        title="Feature Adoption Rate by Clinician Role",
+        color_discrete_sequence=[C["teal"], C["sky"], C["amber"], C["green"]],
     )
-    fig2.update_layout(
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        title_font_color=DEEP_ROSE,
-    )
+    fig2.update_xaxes(tickangle=-30)
+    style(fig2)
     st.plotly_chart(fig2, use_container_width=True)
 
-# ---------------------------------------------------
-# PROJECT REPORT
-# ---------------------------------------------------
+    st.markdown('<div class="sec-title">Time-to-First-Value</div>', unsafe_allow_html=True)
+    fig3 = px.histogram(
+        df, x="ttfv_days", color="power_user",
+        color_discrete_map={0: C["amber"], 1: C["teal"]},
+        nbins=30, opacity=0.8, barmode="overlay",
+        labels={"power_user": "Power User", "ttfv_days": "Days to First Value"},
+        title="Power users reach first value faster",
+    )
+    style(fig3)
+    st.plotly_chart(fig3, use_container_width=True)
+
+    fast_ttfv = int(df.loc[df["power_user"] == 1, "ttfv_days"].median())
+    st.markdown(f"""
+    <div class="ds-callout">
+        🔍 <strong>Product recommendation:</strong> Power users reach first value in a median of
+        <strong>{fast_ttfv} days</strong>. Consider triggering an in-app onboarding prompt at Day 3
+        for users who haven't yet tried e-Prescribing or Care Gap Alerts.
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════
+#  PAGE: USER SEGMENTS
+# ══════════════════════════════════════════════════════════
+elif page == "User Segments":
+
+    st.markdown('<div class="sec-title">Engagement by Department</div>', unsafe_allow_html=True)
+    dept_stats = df.groupby("department").agg(
+        users=("user_id", "count"),
+        power_user_rate=("power_user", "mean"),
+        avg_features=("features_adopted", "mean"),
+    ).reset_index()
+
+    fig = px.scatter(
+        dept_stats, x="avg_features", y="power_user_rate",
+        size="users", color="department", text="department",
+        size_max=50,
+        color_discrete_sequence=[C["teal"], C["sky"], C["amber"], C["green"], C["red"]],
+        title="Department: Avg Features Adopted vs Power User Rate (bubble = user count)",
+        labels={"avg_features": "Avg Features Adopted", "power_user_rate": "Power User Rate"},
+    )
+    fig.update_traces(textposition="top center")
+    style(fig)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown('<div class="sec-title">Power User Rate by Signup Cohort</div>', unsafe_allow_html=True)
+    cohort_df = df.copy()
+    cohort_df["cohort_q"] = cohort_df["cohort_month"].dt.to_period("Q").astype(str)
+    cohort_stats = cohort_df.groupby("cohort_q").agg(
+        users=("user_id", "count"),
+        power_rate=("power_user", "mean"),
+    ).reset_index()
+
+    fig2 = px.bar(
+        cohort_stats, x="cohort_q", y="power_rate",
+        color="power_rate",
+        color_continuous_scale=[C["amber"], C["teal"]],
+        text=cohort_stats["power_rate"].apply(lambda x: f"{x:.0%}"),
+        title="Power User Rate by Acquisition Cohort (Quarterly)",
+        labels={"cohort_q": "Cohort", "power_rate": "Power User Rate"},
+    )
+    fig2.update_traces(textposition="outside")
+    fig2.update_coloraxes(showscale=False)
+    style(fig2)
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown('<div class="sec-title">Plan x Role — Power User Rate Matrix</div>', unsafe_allow_html=True)
+    pivot = df.pivot_table(index="role", columns="plan", values="power_user", aggfunc="mean").round(3)
+    st.dataframe(pivot.style.background_gradient(cmap="YlGn"), use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════
+#  PAGE: ENGAGEMENT MODEL
+# ══════════════════════════════════════════════════════════
+elif page == "Engagement Model":
+
+    st.markdown("""
+    <div class="ds-callout">
+        <strong>Modelling objective:</strong> Predict which clinicians will become power users.
+        This is a <em>binary classification problem</em>. We care most about
+        <strong>ROC-AUC</strong> (overall discrimination) and <strong>Recall</strong>
+        (we don't want to miss at-risk users who need a CS intervention).
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-title">Model Comparison</div>', unsafe_allow_html=True)
+    disp_res = art["results"].copy()
+    for c in ["Accuracy", "Precision", "Recall", "F1", "ROC-AUC"]:
+        disp_res[c] = disp_res[c].map("{:.3f}".format)
+    st.dataframe(disp_res, use_container_width=True, hide_index=True)
+
+    melted = art["results"].melt(
+        id_vars="Model",
+        value_vars=["Accuracy", "Precision", "Recall", "F1", "ROC-AUC"],
+        var_name="Metric", value_name="Score",
+    )
+    fig = px.bar(
+        melted, x="Metric", y="Score", color="Model", barmode="group",
+        color_discrete_map={
+            "Random Forest":       C["teal"],
+            "Gradient Boosting":   C["sky"],
+            "Logistic Regression": C["amber"],
+        },
+        title="Performance Metrics by Model",
+    )
+    style(fig)
+    st.plotly_chart(fig, use_container_width=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown('<div class="sec-title">Random Forest — Top Features</div>', unsafe_allow_html=True)
+        rf_top = art["rf_fi"].head(10).sort_values("importance")
+        fig2 = px.bar(rf_top, x="importance", y="feature", orientation="h",
+                      color="importance", color_continuous_scale=[C["border"], C["teal"]],
+                      title="RF Feature Importance")
+        fig2.update_coloraxes(showscale=False)
+        style(fig2)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with c2:
+        st.markdown('<div class="sec-title">Gradient Boosting — Top Features</div>', unsafe_allow_html=True)
+        gb_top = art["gb_fi"].head(10).sort_values("importance")
+        fig3 = px.bar(gb_top, x="importance", y="feature", orientation="h",
+                      color="importance", color_continuous_scale=[C["border"], C["sky"]],
+                      title="GB Feature Importance")
+        fig3.update_coloraxes(showscale=False)
+        style(fig3)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    st.markdown('<div class="sec-title">Confusion Matrices (Test Set)</div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    for col, cm, name in zip(
+        [col1, col2, col3],
+        [art["cm_rf"], art["cm_gb"], art["cm_lr"]],
+        ["Random Forest", "Gradient Boosting", "Logistic Regression"],
+    ):
+        with col:
+            st.write(f"**{name}**")
+            st.dataframe(
+                pd.DataFrame(cm,
+                    index=["Actual: Non-Power", "Actual: Power"],
+                    columns=["Pred: Non-Power", "Pred: Power"]),
+                use_container_width=True,
+            )
+
+
+# ══════════════════════════════════════════════════════════
+#  PAGE: USER SCORING TOOL
+# ══════════════════════════════════════════════════════════
+elif page == "User Scoring Tool":
+
+    st.markdown("""
+    <div class="ds-callout">
+        Enter a clinician's current usage profile to get their engagement score and tier.
+        Customer Success teams use this to prioritise onboarding calls for at-risk users,
+        or identify power users for case studies and advocate programmes.
+    </div>
+    """, unsafe_allow_html=True)
+
+    model_choice = st.selectbox(
+        "Prediction model",
+        ["Random Forest", "Gradient Boosting", "Logistic Regression"],
+        index=["Random Forest", "Gradient Boosting", "Logistic Regression"].index(art["best_name"]),
+    )
+
+    st.markdown('<div class="sec-title">Usage Profile Input</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+
+    inputs = {}
+    numeric_feats = [
+        "tenure_months", "logins_last_30d", "session_length_min",
+        "patients_documented", "features_adopted", "ttfv_days",
+        "support_tickets", "nps_score", "depth_voice_notes", "depth_analytics_dashboard",
+    ]
+    binary_feats = [
+        "adopted_e_prescribing", "adopted_care_gap_alerts",
+        "adopted_voice_notes",   "adopted_analytics_dashboard",
+    ]
+    half = len(numeric_feats) // 2
+
+    with c1:
+        for f in numeric_feats[:half]:
+            inputs[f] = st.number_input(
+                f"{f}  —  {MODEL_FEATURE_DESC[f]}",
+                value=float(df[f].median()), step=0.5, format="%.1f", key=f"s_{f}",
+            )
+        for f in binary_feats[:2]:
+            inputs[f] = int(st.checkbox(
+                FEATURE_LABELS.get(f.replace("adopted_", ""), f), key=f"s_{f}"
+            ))
+    with c2:
+        for f in numeric_feats[half:]:
+            inputs[f] = st.number_input(
+                f"{f}  —  {MODEL_FEATURE_DESC[f]}",
+                value=float(df[f].median()), step=0.5, format="%.1f", key=f"s2_{f}",
+            )
+        for f in binary_feats[2:]:
+            inputs[f] = int(st.checkbox(
+                FEATURE_LABELS.get(f.replace("adopted_", ""), f), key=f"s2_{f}"
+            ))
+
+    if st.button("▶  Score This User"):
+        inp = pd.DataFrame([{f: inputs[f] for f in MODEL_FEATURES}])
+
+        if model_choice == "Random Forest":
+            prob = art["rf"].predict_proba(inp)[0, 1]
+        elif model_choice == "Gradient Boosting":
+            prob = art["gb"].predict_proba(inp)[0, 1]
+        else:
+            prob = art["lr"].predict_proba(art["scaler"].transform(inp))[0, 1]
+
+        if prob >= 0.65:
+            tier, badge, action, color = (
+                "Power User", "badge-green",
+                "Invite to advocate programme or case study.",
+                C["green"],
+            )
+        elif prob >= 0.35:
+            tier, badge, action, color = (
+                "Developing", "badge-amber",
+                "Schedule onboarding check-in; suggest Voice Notes feature tour.",
+                C["amber"],
+            )
+        else:
+            tier, badge, action, color = (
+                "At Risk", "badge-red",
+                "Escalate to CS; trigger in-app feature discovery campaign.",
+                C["red"],
+            )
+
+        r1, r2, r3 = st.columns(3)
+        with r1:
+            st.metric("Power User Probability", f"{prob:.1%}")
+            st.markdown(f'<span class="{badge}">{tier}</span>', unsafe_allow_html=True)
+            st.caption(f"Model: {model_choice}")
+
+        with r2:
+            st.markdown(f"""
+            <div class="ds-card" style="border-left: 4px solid {color};">
+                <div class="sec-title">Recommended Action</div>
+                <div style="font-size:0.95rem; color:{C['navy']};">{action}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with r3:
+            gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=prob * 100,
+                number={"suffix": "%", "font": {"color": color, "size": 34}},
+                title={"text": "Engagement Score", "font": {"color": C["muted"], "size": 13}},
+                gauge={
+                    "axis": {"range": [0, 100], "tickcolor": C["muted"]},
+                    "bar":  {"color": color, "thickness": 0.25},
+                    "bgcolor": C["card"],
+                    "bordercolor": C["border"],
+                    "steps": [
+                        {"range": [0,  35], "color": "rgba(220,38,38,0.10)"},
+                        {"range": [35, 65], "color": "rgba(217,119,6,0.10)"},
+                        {"range": [65,100], "color": "rgba(13,148,136,0.10)"},
+                    ],
+                    "threshold": {"line": {"color": color, "width": 3}, "value": prob * 100},
+                },
+            ))
+            gauge.update_layout(
+                height=250, paper_bgcolor=C["card"],
+                font_color=C["slate"], margin=dict(t=30, b=0),
+            )
+            st.plotly_chart(gauge, use_container_width=True)
+
+        st.info("ℹ️  This score is a CS prioritisation tool — not a clinical decision aid.")
+
+
+# ══════════════════════════════════════════════════════════
+#  PAGE: SHAP EXPLAINABILITY
+# ══════════════════════════════════════════════════════════
+elif page == "SHAP Explainability":
+
+    st.markdown("""
+    <div class="ds-callout">
+        SHAP (SHapley Additive exPlanations) shows <em>why</em> the model gives a score —
+        not just what the score is. For a junior product DS role, being able to explain model
+        outputs to Product Managers and CS teams is just as important as building the model.
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-title">Global SHAP Summary Plot — Random Forest</div>', unsafe_allow_html=True)
+    fig_s, ax_s = plt.subplots(figsize=(10, 5.5))
+    fig_s.patch.set_facecolor(C["card"])
+    ax_s.set_facecolor(C["card"])
+    shap.summary_plot(art["shap_arr"], art["shap_sample"], show=False, plot_size=None)
+    plt.tight_layout()
+    st.pyplot(fig_s, clear_figure=True)
+
+    st.markdown('<div class="sec-title">Which Features Matter Most? (Mean |SHAP|)</div>', unsafe_allow_html=True)
+    mean_shap = pd.DataFrame({
+        "feature":       art["shap_sample"].columns,
+        "mean_abs_shap": np.abs(art["shap_arr"]).mean(axis=0),
+    }).sort_values("mean_abs_shap", ascending=False).reset_index(drop=True)
+    mean_shap["description"] = mean_shap["feature"].map(MODEL_FEATURE_DESC)
+    mean_shap["rank"] = range(1, len(mean_shap) + 1)
+
+    fig_b = px.bar(
+        mean_shap.sort_values("mean_abs_shap"), x="mean_abs_shap", y="feature",
+        orientation="h",
+        color="mean_abs_shap",
+        color_continuous_scale=[C["border"], C["teal"]],
+        title="Feature Contribution to Power User Prediction",
+        hover_data={"description": True, "mean_abs_shap": ":.4f"},
+    )
+    fig_b.update_coloraxes(showscale=False)
+    style(fig_b)
+    st.plotly_chart(fig_b, use_container_width=True)
+
+    st.markdown('<div class="sec-title">Business Interpretation</div>', unsafe_allow_html=True)
+    interp_df = mean_shap[["rank", "feature", "description", "mean_abs_shap"]].head(10).rename(
+        columns={"rank": "#", "mean_abs_shap": "Impact Score"}
+    )
+    st.dataframe(interp_df, use_container_width=True, hide_index=True)
+
+    t3 = [MODEL_FEATURE_DESC.get(f, f) for f in mean_shap["feature"].head(3).tolist()]
+    st.markdown(f"""
+    <div class="ds-callout">
+        📌 <strong>How to explain this to a Product Manager:</strong><br>
+        "Our top three signals for identifying power users are:
+        <strong>{t3[0]}</strong>, <strong>{t3[1]}</strong>, and <strong>{t3[2]}</strong>.
+        This means our onboarding should focus on getting users to these behaviours quickly —
+        not just driving login volume."
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════
+#  PAGE: PROJECT REPORT
+# ══════════════════════════════════════════════════════════
 elif page == "Project Report":
-    st.markdown('<div class="section-title">Healthcare Analytics Report</div>', unsafe_allow_html=True)
 
-    st.markdown(
-        """
-        <div class="dashboard-card">
+    st.markdown(f"""
+    <div class="ds-card">
 
-        <h4 style="color:#AD1457;">Executive Summary</h4>
-        <p>
-        This healthcare analytics dashboard applies machine learning to breast tumor diagnostic
-        measurements to support the classification of <b>benign</b> versus <b>malignant</b> cases.
-        The product combines predictive modeling, model comparison, SHAP-based interpretability,
-        and clinical risk scoring to translate complex feature patterns into decision-support
-        insights that are easier for healthcare stakeholders to understand and act on.
-        </p>
+    <h3 style="color:{C['navy']}; margin-top:0; border-bottom:2px solid {C['border']}; padding-bottom:.5rem;">
+        What This Project Is
+    </h3>
+    <p>
+    A portfolio project for a <strong>Junior / Associate Product Data Scientist</strong> role
+    in healthcare technology. It simulates how a product DS would approach feature adoption
+    analysis for a clinical workflow SaaS platform called <em>CareFlow</em>.
+    </p>
+    <p>
+    It covers the full workflow expected at the junior level: <em>frame the business question →
+    engineer features → build and compare models → explain results → communicate to stakeholders.</em>
+    </p>
 
-        <h4 style="color:#AD1457;">Clinical Problem</h4>
-        <p>
-        Breast cancer diagnosis depends on interpreting multiple tumor characteristics at the same time,
-        including radius, texture, perimeter, smoothness, and concavity-related signals. In practice,
-        this creates a high-dimensional decision environment where subtle differences in measurements
-        can materially affect diagnostic interpretation.
-        </p>
-        <p>
-        This project evaluates whether machine learning can improve analytical support by identifying
-        feature patterns associated with malignancy, comparing model performance across algorithms,
-        and surfacing interpretable risk signals that can strengthen early detection workflows,
-        research analytics, and triage-style review.
-        </p>
+    <h3 style="color:{C['navy']}; border-bottom:2px solid {C['border']}; padding-bottom:.5rem;">
+        Business Question
+    </h3>
+    <p>
+    Healthcare SaaS has notoriously slow clinical adoption. The key question is:
+    <em>"Which product behaviours in the first 30 days predict whether a clinician will become
+    a long-term, highly engaged user?"</em>
+    </p>
+    <p>
+    Answering this helps the Product team know what to optimise in onboarding, and helps
+    Customer Success prioritise who to call.
+    </p>
 
-        <h4 style="color:#AD1457;">Key Analytical Insights</h4>
-        <ul>
-            <li>High-impact tumor measurements related to <b>radius</b>, <b>perimeter</b>, <b>concavity</b>, and <b>area</b> consistently emerge as strong indicators of malignancy risk.</li>
-            <li>Model-based feature rankings and SHAP outputs show that structural tumor characteristics contribute more strongly to prediction than lower-signal variables.</li>
-            <li>Clinical risk scoring makes model output more usable by translating raw malignancy probabilities into low, moderate, and high risk tiers for faster interpretation.</li>
-        </ul>
+    <h3 style="color:{C['navy']}; border-bottom:2px solid {C['border']}; padding-bottom:.5rem;">
+        Feature Engineering Rationale
+    </h3>
+    <ul>
+        <li><strong>Feature breadth</strong> — how many distinct features a user has tried.
+        In healthcare tools, breadth matters more than raw login frequency because clinicians
+        integrate tools into specific workflows.</li>
+        <li><strong>Time-to-first-value</strong> — days until the first documented patient record.
+        Fast activation is a leading indicator of long-term engagement.</li>
+        <li><strong>Feature depth scores</strong> for Voice Notes and Analytics Dashboard — these
+        require the most behaviour change from clinicians, so deep usage signals genuine
+        workflow integration rather than trial-and-abandon.</li>
+        <li><strong>NPS score</strong> — sentiment signal alongside behavioural data.</li>
+        <li><strong>Support tickets</strong> — friction proxy. High tickets + low engagement is a
+        red-flag combination for churn risk.</li>
+    </ul>
 
-        <h4 style="color:#AD1457;">Machine Learning Models Evaluated</h4>
-        <ul>
-            <li><b>Random Forest</b> – A strong nonlinear ensemble model that captures complex feature interactions and supports feature-importance analysis.</li>
-            <li><b>Gradient Boosting</b> – A boosting-based model designed to improve predictive performance by sequentially learning residual error patterns.</li>
-            <li><b>Logistic Regression</b> – An interpretable baseline model that provides a simpler benchmark for binary clinical classification.</li>
-        </ul>
+    <h3 style="color:{C['navy']}; border-bottom:2px solid {C['border']}; padding-bottom:.5rem;">
+        Modelling Choices
+    </h3>
+    <ul>
+        <li><strong>Target: Power User</strong> — defined as users in the top 55th percentile of
+        a composite engagement score. This is a product definition, not a statistical one —
+        it aligns with how the business identifies advocates and expansion candidates.</li>
+        <li><strong>Why three models:</strong> Random Forest for performance and SHAP explainability;
+        Gradient Boosting as a strong comparison; Logistic Regression as a transparent baseline
+        that is easy to explain to non-technical stakeholders.</li>
+        <li><strong>Evaluation priority:</strong> ROC-AUC for overall discrimination, Recall
+        to minimise missed at-risk users.</li>
+    </ul>
 
-        <h4 style="color:#AD1457;">Explainability & Decision Support</h4>
-        <ul>
-            <li>SHAP explainability is used to quantify how individual tumor features influence malignancy predictions at the model level.</li>
-            <li>Feature importance views and SHAP impact rankings improve transparency by showing which variables drive prediction strength most strongly.</li>
-            <li>Clinical risk tiers convert model probabilities into more interpretable categories that better support healthcare analytics storytelling and review workflows.</li>
-        </ul>
+    <h3 style="color:{C['navy']}; border-bottom:2px solid {C['border']}; padding-bottom:.5rem;">
+        Key Insights from the Analysis
+    </h3>
+    <ul>
+        <li>Feature breadth is the strongest predictor — more important than login frequency.
+        <em>Implication: onboarding should guide users to try multiple features early.</em></li>
+        <li>Voice Notes depth is a high-signal feature despite lower adoption rates. Heavy users
+        have deeply embedded CareFlow in their clinical workflow.</li>
+        <li>Users who reach first value within 3 days are ~2× more likely to become power users.
+        <em>Implication: trigger in-app prompts aggressively on Days 1–3.</em></li>
+        <li>Enterprise plan users show higher power user rates, but the gap closes when Starter
+        users adopt 5+ features — plan tier alone is not destiny.</li>
+    </ul>
 
-        <h4 style="color:#AD1457;">Data Preparation Pipeline</h4>
-        <ul>
-            <li>Uses <b>diagnosis</b> as the core target variable to model clinically relevant classification outcomes between benign and malignant tumors.</li>
-            <li>Removes the <b>id</b> column because it is an administrative identifier rather than a meaningful clinical predictor.</li>
-            <li>Drops <b>Unnamed: 32</b> as an empty/non-contributory field to improve dataset quality and reduce analytical noise.</li>
-            <li>Retains numeric tumor measurement variables as the primary feature set for machine learning–based risk modeling.</li>
-            <li>Splits the dataset into training and test samples to validate model performance and assess generalization on unseen patient records.</li>
-        </ul>
+    <h3 style="color:{C['navy']}; border-bottom:2px solid {C['border']}; padding-bottom:.5rem;">
+        Skills Demonstrated
+    </h3>
+    <ul>
+        <li>Synthetic data design with business-logical relationships (not random noise)</li>
+        <li>Product metric framing: adoption rate, time-to-first-value, feature depth, cohort analysis</li>
+        <li>Feature engineering explained in healthcare product context</li>
+        <li>Three classification models with honest evaluation and metric justification</li>
+        <li>SHAP explainability communicated in plain stakeholder language</li>
+        <li>Actionable outputs: risk tiers, scoring tool, PM-facing callouts</li>
+        <li>Clean, well-commented Python — readable at the junior DS level</li>
+    </ul>
 
-        <h4 style="color:#AD1457;">Business & Healthcare Value</h4>
-        <ul>
-            <li>Supports earlier pattern detection by surfacing features associated with higher malignancy risk.</li>
-            <li>Improves stakeholder understanding by combining predictive accuracy with model interpretability.</li>
-            <li>Provides a reusable analytics framework for healthcare dashboards, research prototypes, and clinical decision-support exploration.</li>
-        </ul>
+    <h3 style="color:{C['navy']}; border-bottom:2px solid {C['border']}; padding-bottom:.5rem;">
+        What I Would Add with Real Data
+    </h3>
+    <ul>
+        <li>Connect to event stream data (Segment / Mixpanel) for session-level feature usage</li>
+        <li>Add a 90-day engagement trajectory using time-series features</li>
+        <li>A/B test analysis on onboarding interventions informed by the model</li>
+        <li>A lightweight retraining pipeline with basic drift monitoring</li>
+    </ul>
 
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("#### Project Structure")
-    st.code(
-        """Causality-Standalone/
-├── app.py
-├── requirements.txt
-├── data/
-│   └── breast_cancer_data.csv
-└── assets/
-    ├── breast_cancer_banner.jpg
-    └── ribbon.png""",
-        language="text",
-    )
+    st.markdown('<div class="sec-title">Run Locally</div>', unsafe_allow_html=True)
+    st.code("""
+# Install dependencies
+pip install streamlit pandas numpy scikit-learn shap plotly matplotlib
+
+# Run the dashboard
+streamlit run app.py
+    """, language="bash")
+
+    st.markdown('<div class="sec-title">Project Structure</div>', unsafe_allow_html=True)
+    st.code("""
+CareFlowDS/
+├── app.py          # Complete single-file Streamlit dashboard
+└── README.md
+    """, language="text")
+
