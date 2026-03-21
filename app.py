@@ -1,6 +1,7 @@
 """
 Healthcare Tech Product DS Dashboard — Feature Adoption & Engagement
 =====================================================================
+
 Use case:
     A clinical workflow SaaS platform (think EHR companion / care coordination tool)
     wants to understand which product features clinicians adopt, how deeply they
