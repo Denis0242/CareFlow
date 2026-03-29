@@ -2,10 +2,8 @@ streamlit
 pandas
 numpy
 scikit-learn
-matplotlib
+matplotlib.pyplot
 shap
 plotly
-scipy
-statsmodels
-joblib
+
 
