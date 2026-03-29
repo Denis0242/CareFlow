@@ -1,8 +1,6 @@
 
 🚀 **Featured Project: CareFlow — Causal Inference & Product Analytics for Decision-Making**
 
-# 🧪 CareFlow: Healthcare Analytics & Causal Insights
-
 🔍**Live App**:
 
 **Live App:** https://jn4vvly3pf2qrnfkrgka2t.streamlit.app
