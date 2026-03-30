@@ -1,50 +1,72 @@
-import pytest
 import sys
-sys.path.insert(0, './src')
-from causal_ml_analysis import BreastCancerCausalML
+from pathlib import Path
 
-def test_model_training():
-    """Test if models train successfully"""
-    analyzer = BreastCancerCausalML('data/breast_cancer_data.csv')
-    analyzer.load_and_prepare_data()
-    analyzer.split_and_scale_data()
-    analyzer.perform_feature_selection()
-    analyzer.train_models()
-    
-    assert len(analyzer.models) > 0, "No models were trained"
-    assert len(analyzer.results) > 0, "No results were generated"
-    print("✓ Model training test passed")
+import pandas as pd
 
-def test_model_accuracy():
-    """Test if models achieve minimum accuracy threshold"""
-    analyzer = BreastCancerCausalML('data/breast_cancer_data.csv')
-    analyzer.load_and_prepare_data()
-    analyzer.split_and_scale_data()
-    analyzer.perform_feature_selection()
-    analyzer.train_models()
-    
-    min_accuracy = 0.90  # 90% minimum accuracy
-    for model_name, results in analyzer.results.items():
-        assert results['accuracy'] >= min_accuracy, \
-            f"{model_name} accuracy {results['accuracy']:.2f} below threshold {min_accuracy}"
-    print(f"✓ All models achieved >{min_accuracy*100}% accuracy")
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-def test_model_roc_auc():
-    """Test if models achieve minimum ROC-AUC threshold"""
-    analyzer = BreastCancerCausalML('data/breast_cancer_data.csv')
-    analyzer.load_and_prepare_data()
-    analyzer.split_and_scale_data()
-    analyzer.perform_feature_selection()
-    analyzer.train_models()
-    
-    min_roc_auc = 0.95  # 95% minimum ROC-AUC
-    for model_name, results in analyzer.results.items():
-        assert results['roc_auc'] >= min_roc_auc, \
-            f"{model_name} ROC-AUC {results['roc_auc']:.2f} below threshold {min_roc_auc}"
-    print(f"✓ All models achieved >{min_roc_auc*100}% ROC-AUC")
+from scripts.careflow_utils import generate_data, train_models
 
-if __name__ == "__main__":
-    test_model_training()
-    test_model_accuracy()
-    test_model_roc_auc()
-    print("\n✓ All model performance tests passed!")
+
+def test_train_models_returns_expected_keys():
+    df = generate_data()
+    artifacts = train_models(df)
+
+    expected_keys = [
+        "X",
+        "y",
+        "X_tr",
+        "X_te",
+        "y_te",
+        "rf",
+        "gb",
+        "lr",
+        "scaler",
+        "results",
+        "rf_fi",
+        "gb_fi",
+        "cm_rf",
+        "cm_gb",
+        "cm_lr",
+        "shap_sample",
+        "explainer",
+        "shap_arr",
+        "shap_error",
+        "best_name",
+        "best_model",
+        "best_scale",
+    ]
+
+    for key in expected_keys:
+        assert key in artifacts
+
+
+def test_results_is_dataframe_and_not_empty():
+    df = generate_data()
+    artifacts = train_models(df)
+
+    results = artifacts["results"]
+    assert isinstance(results, pd.DataFrame)
+    assert not results.empty
+
+
+def test_results_contains_required_metrics():
+    df = generate_data()
+    artifacts = train_models(df)
+
+    results = artifacts["results"]
+    required_columns = ["Model", "Accuracy", "Precision", "Recall", "F1", "ROC-AUC"]
+
+    for col in required_columns:
+        assert col in results.columns
+
+
+def test_metric_values_are_in_valid_range():
+    df = generate_data()
+    artifacts = train_models(df)
+
+    results = artifacts["results"]
+
+    metric_columns = ["Accuracy", "Precision", "Recall", "F1", "ROC-AUC"]
+    for col in metric_columns:
+        assert results[col].between(0, 1).all()

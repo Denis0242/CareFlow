@@ -1,15 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "careflow"
 version = "0.1.0"
-description = "Add your description here"
+description = "Healthcare analytics and predictive insights dashboard for feature adoption, engagement analysis, and interpretable machine learning."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-streamlit
-pandas
-numpy
-scikit-learn
-matplotlib.pyplot
-shap
-plotly
+authors = [
+  { name = "Denis Agyapong" }
 ]
+dependencies = [
+  "streamlit",
+  "pandas",
+  "numpy",
+  "scikit-learn",
+  "matplotlib",
+  "shap",
+  "plotly"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-cov"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["scripts"]
+py-modules = ["app"]
