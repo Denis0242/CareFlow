@@ -74,7 +74,16 @@ Healthcare systems need to:
 ---
 
 ## 📊 Dashboard Preview
-(Insert Streamlit screenshots)
+### Patient Journey Flow
+![Funnel](assets/Funnel.png)
+
+Visualizes patient movement across care pathways to identify bottlenecks in treatment flow.
+
+---
+### Risk Prediction Insights
+![Risk](assets/Risk.png)
+
+Displays model predictions identifying high-risk patients for early intervention.
 
 ---
 
